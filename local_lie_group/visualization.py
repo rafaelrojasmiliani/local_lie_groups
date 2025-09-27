@@ -15,6 +15,8 @@ represented in a given chart.
 """
 
 from __future__ import annotations
+import numpy as np
+import matplotlib.pyplot as plt
 
 from typing import Callable
 
@@ -22,14 +24,11 @@ import matplotlib
 
 # Use a non‑interactive backend so that unit tests or headless environments do
 # not require a display server.
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # needed for 3D projection
 
 
 class FrameVisualizer:
-    """Visualise coordinate frames using Matplotlib.
+    r"""Visualise coordinate frames using Matplotlib.
 
     Parameters
     ----------
@@ -95,9 +94,12 @@ class FrameVisualizer:
 
         # Draw the axes of the frame.  Columns of R correspond to the directions
         # of the x, y and z axes of the rotated frame.
-        self.ax_frame.quiver(*origin, *R[:, 0] * length, color="r", linewidth=2)
-        self.ax_frame.quiver(*origin, *R[:, 1] * length, color="g", linewidth=2)
-        self.ax_frame.quiver(*origin, *R[:, 2] * length, color="b", linewidth=2)
+        self.ax_frame.quiver(
+            *origin, *R[:, 0] * length, color="r", linewidth=2)
+        self.ax_frame.quiver(
+            *origin, *R[:, 1] * length, color="g", linewidth=2)
+        self.ax_frame.quiver(
+            *origin, *R[:, 2] * length, color="b", linewidth=2)
 
         # Update the figure without blocking to allow successive calls.
         self.fig.canvas.draw_idle()
@@ -117,8 +119,7 @@ def show_example() -> None:
     origin, and displays the standard basis.
     """
 
-    chart = lambda R: np.zeros(3)
+    def chart(R): return np.zeros(3)
     visualizer = FrameVisualizer(chart)
     visualizer.draw_frame(np.eye(3))
     visualizer.show()
-

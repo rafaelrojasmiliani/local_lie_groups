@@ -1,0 +1,7 @@
+GPATH
+GRTAGS
+GTAGS
+tags
+.*.sw?
+*~?
+*.pyc
