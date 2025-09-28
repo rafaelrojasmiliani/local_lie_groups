@@ -25,6 +25,7 @@ import matplotlib
 # Use a non‑interactive backend so that unit tests or headless environments do
 # not require a display server.
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # needed for 3D projection
+from matplotlib.widgets import Button, TextBox
 
 
 class FrameVisualizer:
@@ -44,12 +45,22 @@ class FrameVisualizer:
         self.chart = chart
         self.fig = plt.figure(figsize=figsize)
 
+        # Reserve some space at the bottom for the interactive controls that
+        # allow users to choose a point in the chart coordinates.
+        self.fig.subplots_adjust(bottom=0.25)
+
         # Left subplot for the oriented frame in chart coordinates.
         self.ax_frame = self.fig.add_subplot(1, 2, 1, projection="3d")
         # Right subplot for general 3‑D visualisations.
         self.ax_plot = self.fig.add_subplot(1, 2, 2, projection="3d")
 
+        # Storage for points that the user adds through the controls.
+        self._points: list[np.ndarray] = []
+        self._frame_points_artist = None
+        self._plot_points_artist = None
+
         self._configure_axes()
+        self._create_controls()
 
     # ------------------------------------------------------------------
     def _configure_axes(self) -> None:
@@ -66,6 +77,94 @@ class FrameVisualizer:
         self.ax_plot.set_title("3D plot")
 
     # ------------------------------------------------------------------
+    def _create_controls(self) -> None:
+        """Create text boxes and a button to add points to the plots."""
+
+        # Text boxes for the x, y and z coordinates.
+        self._textbox_axes = {
+            "x": self.fig.add_axes([0.12, 0.12, 0.2, 0.07]),
+            "y": self.fig.add_axes([0.40, 0.12, 0.2, 0.07]),
+            "z": self.fig.add_axes([0.68, 0.12, 0.2, 0.07]),
+        }
+
+        self._textboxes = {
+            name: TextBox(ax, f"{name.upper()}:", initial="0.0")
+            for name, ax in self._textbox_axes.items()
+        }
+
+        # Button to add the selected point to both plots.
+        button_ax = self.fig.add_axes([0.45, 0.02, 0.12, 0.07])
+        self._add_point_button = Button(button_ax, "Add point")
+        self._add_point_button.on_clicked(self._on_add_point_clicked)
+
+    # ------------------------------------------------------------------
+    def _on_add_point_clicked(self, _event) -> None:
+        """Handle clicks on the *Add point* button."""
+
+        try:
+            x = float(self._textboxes["x"].text)
+            y = float(self._textboxes["y"].text)
+            z = float(self._textboxes["z"].text)
+        except ValueError:
+            # Ignore invalid input; the text boxes retain their current content
+            # so the user can correct it.
+            return
+
+        self.add_point(np.array([x, y, z], dtype=float))
+
+    # ------------------------------------------------------------------
+    def add_point(self, point: np.ndarray) -> None:
+        """Add a point to both subplots.
+
+        Parameters
+        ----------
+        point:
+            ``(3,)`` array containing the coordinates of the point in chart
+            space.
+        """
+
+        point = np.asarray(point, dtype=float)
+        if point.shape != (3,):  # pragma: no cover - simple input validation
+            raise ValueError("point must be a 3-vector")
+
+        self._points.append(point)
+        self._update_points()
+        self.fig.canvas.draw_idle()
+
+    # ------------------------------------------------------------------
+    def _update_points(self) -> None:
+        """Refresh the scatter artists that display stored points."""
+
+        if self._points:
+            points = np.vstack(self._points)
+            xs, ys, zs = points[:, 0], points[:, 1], points[:, 2]
+        else:
+            xs = ys = zs = np.array([])
+
+        # Update the scatter on the left subplot (frame view).
+        if self._frame_points_artist is None and self._points:
+            self._frame_points_artist = self.ax_frame.scatter(
+                xs, ys, zs, color="k", s=40, depthshade=False
+            )
+        elif self._frame_points_artist is not None:
+            if self._points:
+                self._frame_points_artist._offsets3d = (xs, ys, zs)
+            else:  # pragma: no cover - no points to show
+                self._frame_points_artist.remove()
+                self._frame_points_artist = None
+
+        # Update the scatter on the right subplot (generic view).
+        if self._plot_points_artist is None and self._points:
+            self._plot_points_artist = self.ax_plot.scatter(
+                xs, ys, zs, color="k", s=40, depthshade=False
+            )
+        elif self._plot_points_artist is not None:
+            if self._points:
+                self._plot_points_artist._offsets3d = (xs, ys, zs)
+            else:  # pragma: no cover - no points to show
+                self._plot_points_artist.remove()
+                self._plot_points_artist = None
+
     def draw_frame(self, R: np.ndarray, length: float = 1.0) -> None:
         """Draw an oriented frame given by ``R`` in the left subplot.
 
@@ -87,6 +186,8 @@ class FrameVisualizer:
         self.ax_frame.set_ylim([-1, 1])
         self.ax_frame.set_zlim([-1, 1])
         self.ax_frame.set_box_aspect([1, 1, 1])
+        # Clearing the axis removes any scatter artist stored for the points.
+        self._frame_points_artist = None
 
         origin = np.asarray(self.chart(R), dtype=float)
         if origin.shape != (3,):  # pragma: no cover - simple input validation
@@ -100,6 +201,9 @@ class FrameVisualizer:
             *origin, *R[:, 1] * length, color="g", linewidth=2)
         self.ax_frame.quiver(
             *origin, *R[:, 2] * length, color="b", linewidth=2)
+
+        # Re-draw any stored points that were removed when clearing the axes.
+        self._update_points()
 
         # Update the figure without blocking to allow successive calls.
         self.fig.canvas.draw_idle()
