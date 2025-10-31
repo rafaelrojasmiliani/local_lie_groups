@@ -25,7 +25,7 @@ import matplotlib
 # Use a non‑interactive backend so that unit tests or headless environments do
 # not require a display server.
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # needed for 3D projection
-from matplotlib.widgets import Button, SpinBox
+from matplotlib.widgets import Button, Slider
 
 
 class FrameVisualizer:
@@ -78,22 +78,29 @@ class FrameVisualizer:
 
     # ------------------------------------------------------------------
     def _create_controls(self) -> None:
-        """Create spin boxes and a button to add points to the plots."""
+        """Create sliders and a button to add points to the plots."""
 
-        # Spin boxes for the x, y and z coordinates with 0.1 resolution.
-        self._spinbox_axes = {
-            "x": self.fig.add_axes([0.12, 0.12, 0.2, 0.07]),
-            "y": self.fig.add_axes([0.40, 0.12, 0.2, 0.07]),
-            "z": self.fig.add_axes([0.68, 0.12, 0.2, 0.07]),
+        # Sliders for the x, y and z coordinates with 0.1 resolution.
+        slider_positions = {
+            "x": [0.12, 0.13, 0.23, 0.03],
+            "y": [0.39, 0.13, 0.23, 0.03],
+            "z": [0.66, 0.13, 0.23, 0.03],
         }
 
-        self._spinboxes = {
-            name: SpinBox(ax, f"{name.upper()}:", initial=0.0, increment=0.1, format="%0.1f")
-            for name, ax in self._spinbox_axes.items()
+        self._sliders = {
+            name: Slider(
+                self.fig.add_axes(position),
+                label=f"{name.upper()}",
+                valmin=-1.0,
+                valmax=1.0,
+                valinit=0.0,
+                valstep=0.1,
+            )
+            for name, position in slider_positions.items()
         }
 
         # Button to add the selected point to both plots.
-        button_ax = self.fig.add_axes([0.45, 0.02, 0.12, 0.07])
+        button_ax = self.fig.add_axes([0.45, 0.05, 0.12, 0.06])
         self._add_point_button = Button(button_ax, "Add point")
         self._add_point_button.on_clicked(self._on_add_point_clicked)
 
@@ -104,9 +111,9 @@ class FrameVisualizer:
         self.add_point(
             np.array(
                 [
-                    float(self._spinboxes["x"].value),
-                    float(self._spinboxes["y"].value),
-                    float(self._spinboxes["z"].value),
+                    float(self._sliders["x"].val),
+                    float(self._sliders["y"].val),
+                    float(self._sliders["z"].val),
                 ],
                 dtype=float,
             )
