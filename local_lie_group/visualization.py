@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from typing import Callable
 
 import matplotlib
+from matplotlib import colors as mcolors
 
 # Use a non‑interactive backend so that unit tests or headless environments do
 # not require a display server.
@@ -58,6 +59,14 @@ def _so3_exp(vector: np.ndarray) -> np.ndarray:
     return np.eye(3) + sin_over_theta * K + one_minus_cos_over_theta2 * K2
 
 
+_POINT_COLOR_CYCLE: list[tuple[float, float, float]] = [
+    mcolors.to_rgb("#1f77b4"),
+    mcolors.to_rgb("#ff7f0e"),
+    mcolors.to_rgb("#2ca02c"),
+    mcolors.to_rgb("#d62728"),
+]
+
+
 class FrameVisualizer:
     r"""Visualise coordinate frames using Matplotlib.
 
@@ -86,10 +95,11 @@ class FrameVisualizer:
 
         # Storage for points that the user adds through the controls.
         self._points: list[np.ndarray] = []
+        self._point_base_colors: list[tuple[float, float, float]] = []
         self._plot_points_artist = None
 
         # Keep track of frames to show in the frame subplot.
-        self._frames_from_points: list[np.ndarray] = []
+        self._frames_from_points: list[tuple[np.ndarray, tuple[float, float, float]]] = []
         self._base_frame: tuple[np.ndarray, float] | None = None
 
         self._configure_axes()
@@ -176,8 +186,12 @@ class FrameVisualizer:
         if point.shape != (3,):  # pragma: no cover - simple input validation
             raise ValueError("point must be a 3-vector")
 
+        color_index = len(self._points) % len(_POINT_COLOR_CYCLE)
+        base_color = _POINT_COLOR_CYCLE[color_index]
+
         self._points.append(point)
-        self._frames_from_points.append(_so3_exp(point))
+        self._point_base_colors.append(base_color)
+        self._frames_from_points.append((_so3_exp(point), base_color))
         self._update_points()
         self._draw_frames()
         self.fig.canvas.draw_idle()
@@ -186,57 +200,72 @@ class FrameVisualizer:
     def _update_points(self) -> None:
         """Refresh the scatter artist that displays stored points on the right."""
 
+        if self._plot_points_artist is not None:
+            self._plot_points_artist.remove()
+            self._plot_points_artist = None
+
         if self._points:
             points = np.vstack(self._points)
             xs, ys, zs = points[:, 0], points[:, 1], points[:, 2]
-        else:
-            xs = ys = zs = np.array([])
-
-        # Update the scatter on the right subplot (generic view).
-        if self._plot_points_artist is None and self._points:
             self._plot_points_artist = self.ax_plot.scatter(
-                xs, ys, zs, color="k", s=40, depthshade=False
+                xs,
+                ys,
+                zs,
+                color=self._point_base_colors,
+                s=40,
+                depthshade=False,
             )
-        elif self._plot_points_artist is not None:
-            if self._points:
-                self._plot_points_artist._offsets3d = (xs, ys, zs)
-            else:  # pragma: no cover - no points to show
-                self._plot_points_artist.remove()
-                self._plot_points_artist = None
 
     def _draw_frames(self) -> None:
         """Draw the base frame and all frames created from stored points."""
 
         self._reset_frame_axis()
 
-        frames: list[tuple[np.ndarray, float]] = []
+        frames: list[tuple[np.ndarray, float, tuple[float, float, float] | None]] = []
         if self._base_frame is not None:
-            frames.append(self._base_frame)
-        frames.extend((R, 1.0) for R in self._frames_from_points)
+            frames.append((self._base_frame[0], self._base_frame[1], None))
+        frames.extend((R, 1.0, base_color) for R, base_color in self._frames_from_points)
 
-        for R, length in frames:
+        for R, length, base_color in frames:
             origin = np.asarray(self.chart(R), dtype=float)
             if origin.shape != (3,):  # pragma: no cover - simple input validation
                 raise ValueError("chart(R) must return a 3-vector")
 
+            axis_colors = self._axis_colors_for_base(base_color)
+
             self.ax_frame.quiver(
                 *origin,
                 *R[:, 0] * length,
-                color="r",
+                color=axis_colors[0],
                 linewidth=2,
             )
             self.ax_frame.quiver(
                 *origin,
                 *R[:, 1] * length,
-                color="g",
+                color=axis_colors[1],
                 linewidth=2,
             )
             self.ax_frame.quiver(
                 *origin,
                 *R[:, 2] * length,
-                color="b",
+                color=axis_colors[2],
                 linewidth=2,
             )
+
+    def _axis_colors_for_base(
+        self, base_color: tuple[float, float, float] | None
+    ) -> tuple[tuple[float, float, float], ...]:
+        """Return RGB triples for the axes derived from ``base_color``."""
+
+        if base_color is None:
+            return ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+
+        r, g, b = base_color
+        return (
+            (r, 0.0, 0.0),
+            (0.0, g, 0.0),
+            (0.0, 0.0, b),
+        )
 
     def draw_frame(self, R: np.ndarray, length: float = 1.0) -> None:
         """Draw an oriented frame given by ``R`` in the left subplot."""
