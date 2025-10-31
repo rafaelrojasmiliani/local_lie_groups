@@ -100,7 +100,6 @@ class FrameVisualizer:
 
         # Keep track of frames to show in the frame subplot.
         self._frames_from_points: list[tuple[np.ndarray, tuple[float, float, float]]] = []
-        self._base_frame: tuple[np.ndarray, float] | None = None
 
         self._configure_axes()
         self._create_controls()
@@ -217,14 +216,13 @@ class FrameVisualizer:
             )
 
     def _draw_frames(self) -> None:
-        """Draw the base frame and all frames created from stored points."""
+        """Draw the frames created from stored points."""
 
         self._reset_frame_axis()
 
-        frames: list[tuple[np.ndarray, float, tuple[float, float, float] | None]] = []
-        if self._base_frame is not None:
-            frames.append((self._base_frame[0], self._base_frame[1], None))
-        frames.extend((R, 1.0, base_color) for R, base_color in self._frames_from_points)
+        frames: list[tuple[np.ndarray, float, tuple[float, float, float]]] = [
+            (R, 1.0, base_color) for R, base_color in self._frames_from_points
+        ]
 
         for R, length, base_color in frames:
             origin = np.asarray(self.chart(R), dtype=float)
@@ -252,39 +250,23 @@ class FrameVisualizer:
                 linewidth=2,
             )
 
-            if base_color is not None:
-                for axis_index in range(3):
-                    tip = origin + R[:, axis_index] * length
-                    self.ax_frame.text(
-                        *tip,
-                        str(axis_index + 1),
-                        color=axis_colors[axis_index],
-                        fontsize=10,
-                        ha="center",
-                        va="center",
-                    )
+            for axis_index in range(3):
+                tip = origin + R[:, axis_index] * length
+                self.ax_frame.text(
+                    *tip,
+                    str(axis_index + 1),
+                    color=axis_colors[axis_index],
+                    fontsize=10,
+                    ha="center",
+                    va="center",
+                )
 
     def _axis_colors_for_base(
-        self, base_color: tuple[float, float, float] | None
+        self, base_color: tuple[float, float, float]
     ) -> tuple[tuple[float, float, float], ...]:
         """Return RGB triples for the axes derived from ``base_color``."""
 
-        if base_color is None:
-            return ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
-
         return (base_color, base_color, base_color)
-
-    def draw_frame(self, R: np.ndarray, length: float = 1.0) -> None:
-        """Draw an oriented frame given by ``R`` in the left subplot."""
-
-        if R.shape != (3, 3):  # pragma: no cover - simple input validation
-            raise ValueError("R must be a 3x3 matrix")
-
-        self._base_frame = (np.asarray(R, dtype=float), float(length))
-        self._draw_frames()
-
-        # Update the figure without blocking to allow successive calls.
-        self.fig.canvas.draw_idle()
 
     # ------------------------------------------------------------------
     def show(self) -> None:
@@ -303,5 +285,4 @@ def show_example() -> None:
 
     def chart(R): return np.zeros(3)
     visualizer = FrameVisualizer(chart)
-    visualizer.draw_frame(np.eye(3))
     visualizer.show()
