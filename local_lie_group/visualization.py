@@ -28,6 +28,36 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # needed for 3D projectio
 from matplotlib.widgets import Button, Slider
 
 
+def _hat(vector: np.ndarray) -> np.ndarray:
+    """Return the skew-symmetric matrix associated with ``vector``."""
+
+    x, y, z = vector
+    return np.array(
+        [[0.0, -z, y], [z, 0.0, -x], [-y, x, 0.0]],
+        dtype=float,
+    )
+
+
+def _so3_exp(vector: np.ndarray) -> np.ndarray:
+    """Compute ``exp(S(vector))`` using Rodrigues' rotation formula."""
+
+    theta = float(np.linalg.norm(vector))
+    K = _hat(vector)
+
+    if theta < 1e-12:
+        return np.eye(3)
+
+    K2 = K @ K
+    if theta < 1e-4:
+        sin_over_theta = 1.0 - (theta ** 2) / 6.0
+        one_minus_cos_over_theta2 = 0.5 - (theta ** 2) / 24.0
+    else:
+        sin_over_theta = np.sin(theta) / theta
+        one_minus_cos_over_theta2 = (1.0 - np.cos(theta)) / (theta * theta)
+
+    return np.eye(3) + sin_over_theta * K + one_minus_cos_over_theta2 * K2
+
+
 class FrameVisualizer:
     r"""Visualise coordinate frames using Matplotlib.
 
@@ -56,8 +86,11 @@ class FrameVisualizer:
 
         # Storage for points that the user adds through the controls.
         self._points: list[np.ndarray] = []
-        self._frame_points_artist = None
         self._plot_points_artist = None
+
+        # Keep track of frames to show in the frame subplot.
+        self._frames_from_points: list[np.ndarray] = []
+        self._base_frame: tuple[np.ndarray, float] | None = None
 
         self._configure_axes()
         self._create_controls()
@@ -66,18 +99,24 @@ class FrameVisualizer:
     def _configure_axes(self) -> None:
         """Apply a basic configuration to both subplots."""
 
-        self.ax_frame.set_xlim([-1, 1])
-        self.ax_frame.set_ylim([-1, 1])
-        self.ax_frame.set_zlim([-1, 1])
-        # Equal aspect ratio for a more faithful representation.
-        self.ax_frame.set_box_aspect([1, 1, 1])
-        self.ax_frame.set_title("Frame in chart")
+        self._reset_frame_axis()
 
         self.ax_plot.set_xlim([-3.5, 3.5])
         self.ax_plot.set_ylim([-3.5, 3.5])
         self.ax_plot.set_zlim([-3.5, 3.5])
         self.ax_plot.set_box_aspect([1, 1, 1])
         self.ax_plot.set_title("3D plot")
+
+    # ------------------------------------------------------------------
+    def _reset_frame_axis(self) -> None:
+        """Clear and configure the frame axis for drawing frames."""
+
+        self.ax_frame.cla()
+        self.ax_frame.set_title("Frame in chart")
+        self.ax_frame.set_xlim([-1, 1])
+        self.ax_frame.set_ylim([-1, 1])
+        self.ax_frame.set_zlim([-1, 1])
+        self.ax_frame.set_box_aspect([1, 1, 1])
 
     # ------------------------------------------------------------------
     def _create_controls(self) -> None:
@@ -124,7 +163,7 @@ class FrameVisualizer:
 
     # ------------------------------------------------------------------
     def add_point(self, point: np.ndarray) -> None:
-        """Add a point to both subplots.
+        """Add a point to the right subplot and its frame to the left.
 
         Parameters
         ----------
@@ -138,30 +177,20 @@ class FrameVisualizer:
             raise ValueError("point must be a 3-vector")
 
         self._points.append(point)
+        self._frames_from_points.append(_so3_exp(point))
         self._update_points()
+        self._draw_frames()
         self.fig.canvas.draw_idle()
 
     # ------------------------------------------------------------------
     def _update_points(self) -> None:
-        """Refresh the scatter artists that display stored points."""
+        """Refresh the scatter artist that displays stored points on the right."""
 
         if self._points:
             points = np.vstack(self._points)
             xs, ys, zs = points[:, 0], points[:, 1], points[:, 2]
         else:
             xs = ys = zs = np.array([])
-
-        # Update the scatter on the left subplot (frame view).
-        if self._frame_points_artist is None and self._points:
-            self._frame_points_artist = self.ax_frame.scatter(
-                xs, ys, zs, color="k", s=40, depthshade=False
-            )
-        elif self._frame_points_artist is not None:
-            if self._points:
-                self._frame_points_artist._offsets3d = (xs, ys, zs)
-            else:  # pragma: no cover - no points to show
-                self._frame_points_artist.remove()
-                self._frame_points_artist = None
 
         # Update the scatter on the right subplot (generic view).
         if self._plot_points_artist is None and self._points:
@@ -175,45 +204,48 @@ class FrameVisualizer:
                 self._plot_points_artist.remove()
                 self._plot_points_artist = None
 
-    def draw_frame(self, R: np.ndarray, length: float = 1.0) -> None:
-        """Draw an oriented frame given by ``R`` in the left subplot.
+    def _draw_frames(self) -> None:
+        """Draw the base frame and all frames created from stored points."""
 
-        Parameters
-        ----------
-        R:
-            Orthogonal ``3 x 3`` matrix representing a rotation.
-        length:
-            Length of the frame's axes.  Defaults to ``1.0``.
-        """
+        self._reset_frame_axis()
+
+        frames: list[tuple[np.ndarray, float]] = []
+        if self._base_frame is not None:
+            frames.append(self._base_frame)
+        frames.extend((R, 1.0) for R in self._frames_from_points)
+
+        for R, length in frames:
+            origin = np.asarray(self.chart(R), dtype=float)
+            if origin.shape != (3,):  # pragma: no cover - simple input validation
+                raise ValueError("chart(R) must return a 3-vector")
+
+            self.ax_frame.quiver(
+                *origin,
+                *R[:, 0] * length,
+                color="r",
+                linewidth=2,
+            )
+            self.ax_frame.quiver(
+                *origin,
+                *R[:, 1] * length,
+                color="g",
+                linewidth=2,
+            )
+            self.ax_frame.quiver(
+                *origin,
+                *R[:, 2] * length,
+                color="b",
+                linewidth=2,
+            )
+
+    def draw_frame(self, R: np.ndarray, length: float = 1.0) -> None:
+        """Draw an oriented frame given by ``R`` in the left subplot."""
 
         if R.shape != (3, 3):  # pragma: no cover - simple input validation
             raise ValueError("R must be a 3x3 matrix")
 
-        # Clear previous content while keeping axis limits and titles.
-        self.ax_frame.cla()
-        self.ax_frame.set_title("Frame in chart")
-        self.ax_frame.set_xlim([-1, 1])
-        self.ax_frame.set_ylim([-1, 1])
-        self.ax_frame.set_zlim([-1, 1])
-        self.ax_frame.set_box_aspect([1, 1, 1])
-        # Clearing the axis removes any scatter artist stored for the points.
-        self._frame_points_artist = None
-
-        origin = np.asarray(self.chart(R), dtype=float)
-        if origin.shape != (3,):  # pragma: no cover - simple input validation
-            raise ValueError("chart(R) must return a 3‑vector")
-
-        # Draw the axes of the frame.  Columns of R correspond to the directions
-        # of the x, y and z axes of the rotated frame.
-        self.ax_frame.quiver(
-            *origin, *R[:, 0] * length, color="r", linewidth=2)
-        self.ax_frame.quiver(
-            *origin, *R[:, 1] * length, color="g", linewidth=2)
-        self.ax_frame.quiver(
-            *origin, *R[:, 2] * length, color="b", linewidth=2)
-
-        # Re-draw any stored points that were removed when clearing the axes.
-        self._update_points()
+        self._base_frame = (np.asarray(R, dtype=float), float(length))
+        self._draw_frames()
 
         # Update the figure without blocking to allow successive calls.
         self.fig.canvas.draw_idle()
