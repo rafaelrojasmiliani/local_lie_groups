@@ -97,6 +97,7 @@ class FrameVisualizer:
         self._points: list[np.ndarray] = []
         self._point_base_colors: list[tuple[float, float, float]] = []
         self._plot_points_artist = None
+        self._plot_sphere_artist = None
 
         # Keep track of frames to show in the frame subplot.
         self._frames_from_points: list[tuple[np.ndarray, tuple[float, float, float]]] = []
@@ -122,6 +123,7 @@ class FrameVisualizer:
         self.ax_plot.set_zlim([-3.5, 3.5])
         self.ax_plot.set_box_aspect([1, 1, 1])
         self.ax_plot.set_title("3D plot")
+        self._draw_plot_sphere()
 
     # ------------------------------------------------------------------
     def _reset_frame_axis(self) -> None:
@@ -228,6 +230,34 @@ class FrameVisualizer:
                 s=40,
                 depthshade=False,
             )
+
+    def _draw_plot_sphere(self) -> None:
+        """Draw a translucent sphere that bounds the chart coordinates."""
+
+        if self._plot_sphere_artist is not None:
+            try:
+                self._plot_sphere_artist.remove()
+            except ValueError:  # pragma: no cover - Matplotlib quirk
+                pass
+            self._plot_sphere_artist = None
+
+        radius = 3.14
+        u = np.linspace(0.0, 2.0 * np.pi, 60)
+        v = np.linspace(0.0, np.pi, 30)
+        x = radius * np.outer(np.cos(u), np.sin(v))
+        y = radius * np.outer(np.sin(u), np.sin(v))
+        z = radius * np.outer(np.ones_like(u), np.cos(v))
+
+        self._plot_sphere_artist = self.ax_plot.plot_surface(
+            x,
+            y,
+            z,
+            color="lightgray",
+            alpha=0.15,
+            linewidth=0,
+            antialiased=False,
+            zorder=0,
+        )
 
     def _draw_frames(self) -> None:
         """Draw the frames created from stored points."""
