@@ -20,8 +20,8 @@ import matplotlib.pyplot as plt
 
 from typing import Callable
 
-import matplotlib
 from matplotlib import colors as mcolors
+from matplotlib.backend_bases import TimerBase
 
 # Use a non‑interactive backend so that unit tests or headless environments do
 # not require a display server.
@@ -101,6 +101,13 @@ class FrameVisualizer:
         # Keep track of frames to show in the frame subplot.
         self._frames_from_points: list[tuple[np.ndarray, tuple[float, float, float]]] = []
 
+        # Animation state.
+        self._animation_timer: TimerBase | None = None
+        self._animation_points: list[np.ndarray] = []
+        self._animation_colors: list[tuple[float, float, float]] = []
+        self._animation_index: int = 0
+        self._animation_point_artist = None
+
         self._configure_axes()
         self._create_controls()
 
@@ -155,6 +162,11 @@ class FrameVisualizer:
         self._add_point_button = Button(button_ax, "Add point")
         self._add_point_button.on_clicked(self._on_add_point_clicked)
 
+        # Button to start the interpolation animation.
+        animate_ax = self.fig.add_axes([0.62, 0.05, 0.18, 0.06])
+        self._animate_button = Button(animate_ax, "Animate path")
+        self._animate_button.on_clicked(self._on_animate_clicked)
+
     # ------------------------------------------------------------------
     def _on_add_point_clicked(self, _event) -> None:
         """Handle clicks on the *Add point* button."""
@@ -184,6 +196,8 @@ class FrameVisualizer:
         point = np.asarray(point, dtype=float)
         if point.shape != (3,):  # pragma: no cover - simple input validation
             raise ValueError("point must be a 3-vector")
+
+        self._stop_animation()
 
         color_index = len(self._points) % len(_POINT_COLOR_CYCLE)
         base_color = _POINT_COLOR_CYCLE[color_index]
@@ -220,38 +234,42 @@ class FrameVisualizer:
 
         self._reset_frame_axis()
 
-        frames: list[tuple[np.ndarray, float, tuple[float, float, float]]] = [
-            (R, 1.0, base_color) for R, base_color in self._frames_from_points
-        ]
+        for R, base_color in self._frames_from_points:
+            self._draw_single_frame(R, base_color)
 
-        for R, length, base_color in frames:
-            origin = np.asarray(self.chart(R), dtype=float)
-            if origin.shape != (3,):  # pragma: no cover - simple input validation
-                raise ValueError("chart(R) must return a 3-vector")
+    def _axis_colors_for_base(
+        self, base_color: tuple[float, float, float]
+    ) -> tuple[tuple[float, float, float], ...]:
+        """Return RGB triples for the axes derived from ``base_color``."""
 
-            axis_colors = self._axis_colors_for_base(base_color)
+        return (base_color, base_color, base_color)
 
+    def _draw_single_frame(
+        self,
+        R: np.ndarray,
+        base_color: tuple[float, float, float],
+        *,
+        annotate: bool = True,
+    ) -> None:
+        """Draw a single frame using ``R`` and ``base_color``."""
+
+        origin = np.asarray(self.chart(R), dtype=float)
+        if origin.shape != (3,):  # pragma: no cover - simple input validation
+            raise ValueError("chart(R) must return a 3-vector")
+
+        axis_colors = self._axis_colors_for_base(base_color)
+
+        for axis_index in range(3):
+            direction = R[:, axis_index]
             self.ax_frame.quiver(
                 *origin,
-                *R[:, 0] * length,
-                color=axis_colors[0],
-                linewidth=2,
-            )
-            self.ax_frame.quiver(
-                *origin,
-                *R[:, 1] * length,
-                color=axis_colors[1],
-                linewidth=2,
-            )
-            self.ax_frame.quiver(
-                *origin,
-                *R[:, 2] * length,
-                color=axis_colors[2],
+                *direction,
+                color=axis_colors[axis_index],
                 linewidth=2,
             )
 
-            for axis_index in range(3):
-                tip = origin + R[:, axis_index] * length
+            if annotate:
+                tip = origin + direction
                 self.ax_frame.text(
                     *tip,
                     str(axis_index + 1),
@@ -261,12 +279,120 @@ class FrameVisualizer:
                     va="center",
                 )
 
-    def _axis_colors_for_base(
-        self, base_color: tuple[float, float, float]
-    ) -> tuple[tuple[float, float, float], ...]:
-        """Return RGB triples for the axes derived from ``base_color``."""
+    def _on_animate_clicked(self, _event) -> None:
+        """Handle clicks on the *Animate path* button."""
 
-        return (base_color, base_color, base_color)
+        self.start_animation()
+
+    def start_animation(self) -> None:
+        """Start animating an interpolated point if possible."""
+
+        if len(self._points) < 2:
+            return
+
+        self._stop_animation()
+        self._prepare_animation_path()
+        if not self._animation_points:
+            return
+
+        self._animation_index = 0
+        self._ensure_animation_timer()
+        self._animation_timer.start()
+
+    def _prepare_animation_path(self) -> None:
+        """Compute the interpolation path through stored points."""
+
+        path: list[np.ndarray] = []
+        colors: list[tuple[float, float, float]] = []
+
+        for idx in range(len(self._points) - 1):
+            start = self._points[idx]
+            end = self._points[idx + 1]
+            start_color = self._point_base_colors[idx]
+            end_color = self._point_base_colors[idx + 1]
+
+            for step_index, alpha in enumerate(np.linspace(0.0, 1.0, 11)):
+                if idx > 0 and step_index == 0:
+                    continue
+
+                point = (1.0 - alpha) * start + alpha * end
+                color = start_color if alpha < 1.0 else end_color
+                path.append(point)
+                colors.append(color)
+
+        self._animation_points = path
+        self._animation_colors = colors
+
+    def _ensure_animation_timer(self) -> None:
+        """Create and configure the Matplotlib timer for animations."""
+
+        if self._animation_timer is not None:
+            self._animation_timer.stop()
+            self._animation_timer = None
+
+        timer = self.fig.canvas.new_timer(interval=200)
+        timer.add_callback(self._advance_animation)
+        if hasattr(timer, "single_shot"):
+            timer.single_shot = False
+        self._animation_timer = timer
+
+    def _advance_animation(self) -> None:
+        """Advance the interpolation animation by one step."""
+
+        if self._animation_index >= len(self._animation_points):
+            self._stop_animation()
+            self.fig.canvas.draw_idle()
+            return
+
+        point = self._animation_points[self._animation_index]
+        color = self._animation_colors[self._animation_index]
+
+        self._draw_frames()
+        self._draw_single_frame(_so3_exp(point), color)
+        self._update_animation_point_artist(point, color)
+
+        self._animation_index += 1
+        if self._animation_index >= len(self._animation_points):
+            self._stop_animation(clear_artists=False)
+
+        self.fig.canvas.draw_idle()
+
+    def _update_animation_point_artist(
+        self, point: np.ndarray, color: tuple[float, float, float]
+    ) -> None:
+        """Draw or update the animated point on the right subplot."""
+
+        if self._animation_point_artist is not None:
+            self._animation_point_artist.remove()
+            self._animation_point_artist = None
+
+        self._animation_point_artist = self.ax_plot.scatter(
+            [point[0]],
+            [point[1]],
+            [point[2]],
+            color=[color],
+            s=70,
+            depthshade=False,
+            marker="o",
+        )
+
+    def _stop_animation(self, *, clear_artists: bool = True) -> None:
+        """Stop any running animation and optionally clear artists."""
+
+        if self._animation_timer is not None:
+            self._animation_timer.stop()
+            self._animation_timer = None
+
+        self._animation_points = []
+        self._animation_colors = []
+        self._animation_index = 0
+
+        if clear_artists:
+            if self._animation_point_artist is not None:
+                self._animation_point_artist.remove()
+                self._animation_point_artist = None
+
+            self._draw_frames()
 
     # ------------------------------------------------------------------
     def show(self) -> None:
