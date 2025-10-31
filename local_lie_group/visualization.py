@@ -25,7 +25,7 @@ import matplotlib
 # Use a non‑interactive backend so that unit tests or headless environments do
 # not require a display server.
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  # needed for 3D projection
-from matplotlib.widgets import Button, TextBox
+from matplotlib.widgets import Button, SpinBox
 
 
 class FrameVisualizer:
@@ -78,18 +78,18 @@ class FrameVisualizer:
 
     # ------------------------------------------------------------------
     def _create_controls(self) -> None:
-        """Create text boxes and a button to add points to the plots."""
+        """Create spin boxes and a button to add points to the plots."""
 
-        # Text boxes for the x, y and z coordinates.
-        self._textbox_axes = {
+        # Spin boxes for the x, y and z coordinates with 0.1 resolution.
+        self._spinbox_axes = {
             "x": self.fig.add_axes([0.12, 0.12, 0.2, 0.07]),
             "y": self.fig.add_axes([0.40, 0.12, 0.2, 0.07]),
             "z": self.fig.add_axes([0.68, 0.12, 0.2, 0.07]),
         }
 
-        self._textboxes = {
-            name: TextBox(ax, f"{name.upper()}:", initial="0.0")
-            for name, ax in self._textbox_axes.items()
+        self._spinboxes = {
+            name: SpinBox(ax, f"{name.upper()}:", initial=0.0, increment=0.1, format="%0.1f")
+            for name, ax in self._spinbox_axes.items()
         }
 
         # Button to add the selected point to both plots.
@@ -101,16 +101,16 @@ class FrameVisualizer:
     def _on_add_point_clicked(self, _event) -> None:
         """Handle clicks on the *Add point* button."""
 
-        try:
-            x = float(self._textboxes["x"].text)
-            y = float(self._textboxes["y"].text)
-            z = float(self._textboxes["z"].text)
-        except ValueError:
-            # Ignore invalid input; the text boxes retain their current content
-            # so the user can correct it.
-            return
-
-        self.add_point(np.array([x, y, z], dtype=float))
+        self.add_point(
+            np.array(
+                [
+                    float(self._spinboxes["x"].value),
+                    float(self._spinboxes["y"].value),
+                    float(self._spinboxes["z"].value),
+                ],
+                dtype=float,
+            )
+        )
 
     # ------------------------------------------------------------------
     def add_point(self, point: np.ndarray) -> None:
