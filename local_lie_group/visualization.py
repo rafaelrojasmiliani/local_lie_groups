@@ -252,6 +252,18 @@ class FrameVisualizer:
                 linewidth=2,
             )
 
+            if base_color is not None:
+                for axis_index in range(3):
+                    tip = origin + R[:, axis_index] * length
+                    self.ax_frame.text(
+                        *tip,
+                        str(axis_index + 1),
+                        color=axis_colors[axis_index],
+                        fontsize=10,
+                        ha="center",
+                        va="center",
+                    )
+
     def _axis_colors_for_base(
         self, base_color: tuple[float, float, float] | None
     ) -> tuple[tuple[float, float, float], ...]:
@@ -260,12 +272,7 @@ class FrameVisualizer:
         if base_color is None:
             return ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
 
-        r, g, b = base_color
-        return (
-            (r, 0.0, 0.0),
-            (0.0, g, 0.0),
-            (0.0, 0.0, b),
-        )
+        return (base_color, base_color, base_color)
 
     def draw_frame(self, R: np.ndarray, length: float = 1.0) -> None:
         """Draw an oriented frame given by ``R`` in the left subplot."""
