@@ -66,14 +66,17 @@ class FrameVisualizer:
     def _configure_axes(self) -> None:
         """Apply a basic configuration to both subplots."""
 
-        for ax in (self.ax_frame, self.ax_plot):
-            ax.set_xlim([-1, 1])
-            ax.set_ylim([-1, 1])
-            ax.set_zlim([-1, 1])
-            # Equal aspect ratio for a more faithful representation.
-            ax.set_box_aspect([1, 1, 1])
-
+        self.ax_frame.set_xlim([-1, 1])
+        self.ax_frame.set_ylim([-1, 1])
+        self.ax_frame.set_zlim([-1, 1])
+        # Equal aspect ratio for a more faithful representation.
+        self.ax_frame.set_box_aspect([1, 1, 1])
         self.ax_frame.set_title("Frame in chart")
+
+        self.ax_plot.set_xlim([-3.5, 3.5])
+        self.ax_plot.set_ylim([-3.5, 3.5])
+        self.ax_plot.set_zlim([-3.5, 3.5])
+        self.ax_plot.set_box_aspect([1, 1, 1])
         self.ax_plot.set_title("3D plot")
 
     # ------------------------------------------------------------------
