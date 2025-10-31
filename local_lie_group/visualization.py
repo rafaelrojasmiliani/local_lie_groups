@@ -149,8 +149,8 @@ class FrameVisualizer:
             name: Slider(
                 self.fig.add_axes(position),
                 label=f"{name.upper()}",
-                valmin=-1.0,
-                valmax=1.0,
+                valmin=-3.14,
+                valmax=3.14,
                 valinit=0.0,
                 valstep=0.1,
             )
